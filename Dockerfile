@@ -1,67 +1,69 @@
-ARG ROS_DISTRO=rolling
+ARG ROS_DISTRO=jazzy
 
-FROM ros:${ROS_DISTRO}-ros-core AS build-env
-ENV DEBIAN_FRONTEND=noninteractive \
-    BUILD_HOME=/var/lib/build \
-    OUSTER_ROS_PATH=/opt/ros2_ws/src/ouster-ros
+# This is an auto generated Dockerfile for ros:ros-base
+# generated from docker_images_ros2/create_ros_image.Dockerfile.em
+FROM ros:jazzy-ros-core-noble
 
-RUN set -xue \
-# Turn off installing extra packages globally to slim down rosdep install
-&& echo 'APT::Install-Recommends "0";' > /etc/apt/apt.conf.d/01norecommend \
-&& apt-get update \
-&& apt-get install -y       \
-    build-essential         \
-    cmake                   \
-    fakeroot                \
-    dpkg-dev                \
-    debhelper               \
-    python3-rosdep          \
-    python3-rospkg          \
-    python3-bloom           \
-    python3-colcon-common-extensions
-
-# Set up non-root build user
-ARG BUILD_UID=1000
-ARG BUILD_GID=${BUILD_UID}
-
-RUN set -xe \
-&& groupadd -o -g ${BUILD_GID} build \
-&& useradd -o -u ${BUILD_UID} -d ${BUILD_HOME} -rm -s /bin/bash -g build build
-
-# Set up build environment
-COPY --chown=build:build . $OUSTER_ROS_PATH
-
-RUN set -xe         \
-&& apt-get update   \
-&& rosdep init      \
-&& rosdep update --rosdistro=$ROS_DISTRO \
-&& rosdep install --from-paths $OUSTER_ROS_PATH -y --ignore-src
+# Set custom prompt color in the container
+RUN echo 'export PS1="\[\e[0;35m\]\u@\h:\w\$ \[\e[m\]"' >> /root/.bashrc
 
 
-USER build:build
-WORKDIR ${BUILD_HOME}
+# install bootstrap tools
+RUN apt-get update && apt-get install --no-install-recommends -y \
+    build-essential \
+    git \
+    python3-colcon-common-extensions \
+    python3-colcon-mixin \
+    python3-rosdep \
+    python3-vcstool \
+    && rm -rf /var/lib/apt/lists/*
 
-RUN set -xe \
-&& mkdir src \
-&& cp -R $OUSTER_ROS_PATH ./src
+# bootstrap rosdep
+RUN rosdep init && \
+  rosdep update --rosdistro $ROS_DISTRO
+
+# setup colcon mixin and metadata
+RUN colcon mixin add default \
+      https://raw.githubusercontent.com/colcon/colcon-mixin-repository/master/index.yaml && \
+    colcon mixin update && \
+    colcon metadata add default \
+      https://raw.githubusercontent.com/colcon/colcon-metadata-repository/master/index.yaml && \
+    colcon metadata update
 
 
-FROM build-env
+# Install ROS 2 packages and additional dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ros-jazzy-ros-base=0.11.0-1* \
+    ros-$ROS_DISTRO-pcl-ros \
+    ros-$ROS_DISTRO-tf2-eigen \
+    ros-$ROS_DISTRO-rviz2 \
+    build-essential \
+    libeigen3-dev \
+    libjsoncpp-dev \
+    libspdlog-dev \
+    libcurl4-openssl-dev \
+    cmake \
+    python3-colcon-common-extensions \
+## add lib for dependency
+    libpcl-dev \
+## Network lib
+    iproute2 \  
+    net-tools \ 
+    iputils-ping \
+    && rm -rf /var/lib/apt/lists/*
+  
 
-SHELL ["/bin/bash", "-c"]
 
-RUN source /opt/ros/$ROS_DISTRO/setup.bash && colcon build \
-    --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_CXX_FLAGS="-Wno-deprecated-declarations"
 
-RUN source /opt/ros/$ROS_DISTRO/setup.bash && colcon test \
-    --ctest-args tests ouster_ros --rerun-failed --output-on-failure
+    # Clone the Ouster ROS driver repository
+RUN mkdir -p /ros2_ws/src && cd /ros2_ws/src && \
+git clone -b ros2 --recurse-submodules https://github.com/ouster-lidar/ouster-ros.git
 
-# Entrypoint for running Ouster ros:
-#
-# Usage: docker run --rm -it ouster-ros [sensor.launch parameters ..]
-#
-ENTRYPOINT ["bash", "-c", "set -e \
-&& source ./install/setup.bash \
-&& ros2 launch ouster_ros sensor.launch.xml \"$@\" \
-", "ros-entrypoint"]
+# Source the ROS environment
+SHELL ["/bin/bash", "-c"] 
+RUN source /opt/ros/$ROS_DISTRO/setup.bash && \
+cd /ros2_ws && \
+colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release
+
+# Source the install workspace to add launch commands to the environment
+RUN echo "source /ros2_ws/install/setup.bash" >> ~/.bashrc
