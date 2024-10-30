@@ -1,0 +1,21 @@
+version: "3.8"
+services:
+  rosouster:
+    build:
+      context: .
+      dockerfile: Dockerfile  # 위 Dockerfile 경로 지정
+    image: ros_noble_jazzy_ouster
+    environment:
+      - DISPLAY=${DISPLAY}  # GUI 연결 설정
+      - QT_X11_NO_MITSHM=1
+      - ROS_DISTRO=jazzy
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw  # GUI 출력을 위해 X11 볼륨 공유
+    network_mode: "host"  # 호스트 네트워크 사용
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities: [gpu]  # GPU 사용 가능, 필요 시 활성화
+    tty: true  # CLI 인터랙션을 위한 tty 설정
